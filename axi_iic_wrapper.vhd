@@ -5,7 +5,6 @@ use ieee.numeric_std.all;
 entity axi_iic_wrapper is
 	generic (
         -- Users to add parameters here
-        fifo_size : INTEGER := 16; -- maximum package burst in bytes
         input_clk : INTEGER := 50_000_000; --input clock speed from user logic in Hz
         bus_clk   : INTEGER := 400_000;   --speed the i2c bus (scl) will run at in Hz
 		-- User parameters ends
@@ -111,21 +110,13 @@ component i2c_master IS
     addr      : IN     STD_LOGIC_VECTOR(6 DOWNTO 0);
     rw        : IN     STD_LOGIC;
     data_wr   : IN     STD_LOGIC_VECTOR(7 DOWNTO 0);
+    rdy       : OUT    STD_LOGIC;
     busy      : OUT    STD_LOGIC;
     data_rd   : OUT    STD_LOGIC_VECTOR(7 DOWNTO 0);
     ack_error : BUFFER STD_LOGIC;
     sda       : INOUT  STD_LOGIC;
     scl       : INOUT  STD_LOGIC);
 END component;
-
-component fifo_mod is
-    generic(    data_width: integer := 8);
-    port (      clk, resetn: in std_logic;
-                push, pull : in std_logic;
-                data_in: in std_logic_vector(data_width-1 downto 0);
-                data_out: out std_logic_vector(data_width-1 downto 0);
-                empty, full : out std_logic);
-end component;
 
 -- AXI4LITE signals
 signal axi_awaddr	: std_logic_vector(C_S_AXI_ADDR_WIDTH-1 downto 0);
@@ -164,33 +155,28 @@ signal slv_reg_rden	: std_logic;
 signal slv_reg_wren	: std_logic;
 -- reg_out |  | data_rd |
 --     bit |  |  15-0   |
-signal reg_data_out	:std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
+signal reg_data_out	: std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
+signal data_rd_reg	: std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
 signal byte_index	: integer;
 signal aw_en	: std_logic;
-
 
 -- Signals for Modules
 signal ena       : STD_LOGIC;
 signal addr      : STD_LOGIC_VECTOR(6 DOWNTO 0);
 signal rw        : STD_LOGIC;
 signal data_wr   : STD_LOGIC_VECTOR(7 DOWNTO 0);
+signal rdy      : STD_LOGIC;
 signal busy      : STD_LOGIC;
 signal data_rd   : STD_LOGIC_VECTOR(7 DOWNTO 0);
 signal ack_error : STD_LOGIC;
 
-signal fifo_push    : STD_LOGIC;
-signal fifo_pull    : STD_LOGIC;
-signal fifo_data_qtd : std_logic_vector(1 downto 0);
-signal fifo_data_in : std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
-signal fifo_data_out : std_logic_vector(7 downto 0);
-signal fifo_empty   : STD_LOGIC;
-signal fifo_full    : STD_LOGIC;
+signal fifo_data : std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
+signal return_push, return_read : std_logic;
+signal i2c_busy, i2c_busy_read, i2c_busy_write : STD_LOGIC;
 
 -- Data FSM signals
-TYPE state_type IS (idle, wr_job, rd_job, wr_ready, rd_ready); -- Define the states
+TYPE state_type IS (idle, wait_data_axi, push, proc_write, start_read, proc_read, proc_stop); -- Define the states
 SIGNAL state : state_Type;  -- Create a signal that uses 
-signal i2c_addr : std_logic_vector(6 downto 0);
-signal i2c_busy : STD_LOGIC;
 
 begin
 
@@ -214,15 +200,15 @@ begin
     begin
     if rising_edge(S_AXI_ACLK) then 
         if S_AXI_ARESETN = '0' then
-        axi_awready <= '0';
-        aw_en <= '1';
+            axi_awready <= '0';
+            aw_en <= '1';
         else
         if (axi_awready = '0' and S_AXI_AWVALID = '1' and S_AXI_WVALID = '1' and aw_en = '1') then
             -- slave is ready to accept write address when
             -- there is a valid write address, write data
             -- on the write address and i2c_wrready is asserted.
             axi_awready <= '1';
-        elsif (S_AXI_BREADY = '1' and axi_bvalid = '1' and i2c_busy = '0') then
+        elsif (S_AXI_BREADY = '1' and axi_bvalid = '1') then
             aw_en <= '1';
             axi_awready <= '0';
         else
@@ -404,13 +390,14 @@ begin
         loc_addr := axi_araddr(ADDR_LSB + OPT_MEM_ADDR_BITS downto ADDR_LSB);
         case loc_addr is
         when b"00" =>
-            reg_data_out(31) <= i2c_busy_write;
-            reg_data_out(30) <= i2c_busy_read;
-            reg_data_out(29 downto 0) <= slv_reg0(30 downto 0);
+            reg_data_out(31) <= i2c_busy;
+            reg_data_out(30) <= i2c_busy_write;
+            reg_data_out(29) <= i2c_busy_read;
+            reg_data_out(28 downto 0) <= slv_reg0(28 downto 0);
         when b"01" =>
             reg_data_out <= slv_reg1;
         when b"10" =>
-            reg_data_out <= slv_reg2;
+            reg_data_out <= data_rd_reg;
         when b"11" =>
             reg_data_out <= slv_reg3;
         when others =>
@@ -437,6 +424,8 @@ begin
     end process;
 
     -- IIC module logic
+    
+    i2c_busy <= i2c_busy_read or i2c_busy_write or busy;
     --
     -- Instantiation of module i2c master
     my_iic: i2c_master 
@@ -451,89 +440,158 @@ begin
         addr      => addr,
         rw        => rw,
         data_wr   => data_wr,
+        rdy       => rdy,
         busy      => busy,
         data_rd   => data_rd,
         ack_error => ack_error,
         sda       => sda,
         scl       => scl       
     );
-    -- Instantiation of module fifo
-    my_fifo: FIFO_MOD
-    Generic Map(
-        data_width => 8
-    )
-    Port Map(
-        clk => s_axi_aclk,
-        resetn => s_axi_aresetn,
-        push     => fifo_push,
-        pull     => fifo_pull,
-        data_qtd => fifo_data_qtd,
-        data_in  => fifo_data_in,
-        data_out => fifo_data_out,
-        empty    => fifo_empty,
-        full     => fifo_full
-    )
-
-    -- Latching address
-    process(slv_reg0)
-    begin
-        addr <= slv_reg0(7 downto 1);
-        rw <= slv_reg0(0);
-        fifo_data_qtd <= slv_reg0(10 downto 8);
-    end process;
-    -- Latching data
-    process(slv_reg1)
-    begin
-        fifo_data_in <= slv_reg1;
-    end process;
     
+    -- IIC signal FSM process
+    process(s_axi_aclk)
+    variable busy_prev, rdy_prev : std_logic ;
+    variable fifo_cnt : integer range 0 to 4;
+    begin
+        if s_axi_aresetn = '0' then
+          fifo_cnt := 0;
+          busy_prev := '0';
+
+          i2c_busy_read <= '0';
+          i2c_busy_write <= '0';
+
+          ena <= '0';
+          addr <= (others=>'0');
+          data_wr <= (others=>'0');
+          rw <= '0';
+
+          return_read <= '0';
+          return_push <= '0';
+          fifo_data <= (others=>'0');
+          data_rd_reg <= (others=>'0');
+
+        elsif rising_edge(s_axi_aclk) then
+            case state is
+            when idle =>
+                busy_prev := '0';
+                rdy_prev := '0';
+                
+                addr <= slv_reg0(7 downto 1);
+                rw <= slv_reg0(0);
+                fifo_cnt := to_integer(unsigned(slv_reg0(10 downto 8)));
+      
+            when wait_data_axi =>
+                i2c_busy_write <= '1';
+                fifo_data <= slv_reg1;
+                
+            when push =>
+                data_wr <= fifo_data(fifo_cnt*8 - 1 downto (fifo_cnt-1)*8);
+                fifo_cnt := fifo_cnt-1;
+                return_push <= '0';
+                ena <= '1';
+
+            when proc_write =>
+                if rdy /= rdy_prev and rdy = '1' then
+                  if fifo_cnt /= 0 then
+                    return_push <= '1';
+                  else
+                    i2c_busy_write <= '0';
+                    ena <= '0';
+                  end if;
+                end if;
+                rdy_prev := rdy;
+                
+            when start_read =>
+                i2c_busy_read <= '1';
+                ena <= '1';
+                fifo_cnt := fifo_cnt-1;
+                return_read <= '0';
+
+            when proc_read =>
+                if rdy /= rdy_prev and rdy = '1' then
+                  if fifo_cnt /= 0 then
+                    return_read <= '1';
+                  else
+                    ena <= '0';
+                    i2c_busy_read <= '0';
+                  end if;
+                  data_rd_reg((fifo_cnt+1)*8 - 1 downto fifo_cnt*8) <= data_rd;
+                end if;
+                rdy_prev := busy;
+
+            when proc_stop => 
+              ena <= '0';
+              i2c_busy_read <= '0';
+              i2c_busy_write <= '0';        
+                
+            when others =>
+            
+            end case;
+        end if;
+    end process proc_name;
+
     -- IIC FSM state process
     process(s_axi_aclk)
-    variable slv_reg_local : std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
-    variable busy_prev : std_logic ;
+    variable scl_prev : std_logic;
+    variable rdy_prev : std_logic;
     begin
         if rising_edge(s_axi_aclk) then
             if s_axi_aresetn = '0' then
                 state <= idle;
-                busy_prev := '0';
-                i2c_busy_write <= '0';
-                i2c_busy_write <= '0';
-                fifo_push <= '0';
+                scl_prev := '0';
             else
                 case state is
-                    when idle =>
+                when idle =>
+                    scl_prev := '0';
                     if new_reg0 = '1' then
                       if rw='1' then
                         state <= start_read;
                       else
                         state <= wait_data_axi;
                       end if;
+                      busy_prev := '0'';
                     else
                       state <= idle;
                     end if;                       
                     
-                    when wait_data_axi =>
+                when wait_data_axi =>
                     if new_reg1 = '1' then
                       state <= push;
                     else
                       state <= wait_data_axi;
                     end if;
 
-                    when push =>
-                    state <= start_write;
+                when push =>
+                    state <= proc_write;
 
-                    when proc_write =>
-                    if fifo_empty = '0' then
-                      state <= proc_write;
-                    else
+                when proc_write =>
+                    if i2c_busy_write = '0' then
                       state <= proc_stop;
-                    end if;
-                      
+                    elsif return_push = '1' then
+                      state <= push;
+                    else
+                      state <= proc_write;
                     end if;
                         
+                when start_read =>
+                    state <= proc_read;
 
-                    when others =>
-                        
+                when proc_read =>
+                    if i2c_busy_read = '0' then
+                      state <= proc_stop;
+                    elsif return_read = '1' then
+                      state <= start_read;
+                    else
+                      state <= proc_read;    
+                    end if;
+
+                when proc_stop => 
+                    if busy = '0' then
+                      state <= idle;
+                    end if;
+
+                when others =>
+                    state <= idle;
                 
                 end case;
             end if;
