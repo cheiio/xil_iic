@@ -111,7 +111,7 @@ BEGIN
       state <= ready;                      --return to initial state
       busy <= '1';                         --indicate not available
       scl_ena <= '0';                      --sets scl high impedance
-      sda_int <= '0';                      --sets sda high impedance
+      sda_int <= '1';                      --sets sda high impedance
       ack_error <= '0';                    --clear acknowledge error flag
       bit_cnt <= 7;                        --restarts data bit counter
       data_rd <= "00000000";               --clear data read port
@@ -128,20 +128,23 @@ BEGIN
               busy <= '0';                   --unflag busy
               state <= ready;                --remain idle
             END IF;
+
           WHEN start =>                      --start bit of transaction
             busy <= '1';                     --resume busy if continuous mode
             sda_int <= addr_rw(bit_cnt);     --set first address bit to bus
             state <= command;                --go to command
+
           WHEN command =>                    --address and command byte of transaction
             IF(bit_cnt = 0) THEN             --command transmit finished
               sda_int <= '1';                --release sda for slave acknowledge
               bit_cnt <= 7;                  --reset bit counter for "byte" states
-              state <= slv_ack1;   --mudanza          --go to slave acknowledge (command)
+              state <= slv_ack1;             --go to slave acknowledge (command)
             ELSE                             --next clock cycle of command state
               bit_cnt <= bit_cnt - 1;        --keep track of transaction bits
               sda_int <= addr_rw(bit_cnt-1); --write address/command bit to bus
               state <= command;              --continue with command
             END IF;
+
           WHEN slv_ack1 =>                   --slave acknowledge bit (command)
             IF(addr_rw(0) = '0') THEN        --write command
               sda_int <= data_tx(bit_cnt);   --write first bit of data
@@ -150,6 +153,7 @@ BEGIN
               sda_int <= '1';                --release sda from incoming data
               state <= rd;                   --go to read byte
             END IF;
+
           WHEN wr =>                         --write byte of transaction
             busy <= '1';                     --resume busy if continuous mode
             IF(bit_cnt = 0) THEN             --write byte transmit finished
@@ -161,6 +165,7 @@ BEGIN
               sda_int <= data_tx(bit_cnt-1); --write next bit to bus
               state <= wr;                   --continue writing
             END IF;
+
           WHEN rd =>                         --read byte of transaction
             busy <= '1';                     --resume busy if continuous mode
             IF(bit_cnt = 0) THEN             --read byte receive finished
@@ -173,28 +178,25 @@ BEGIN
               data_rd <= data_rx;            --output received data
               state <= mstr_ack;             --go to master acknowledge
             ELSE                             --next clock cycle of read state
-         
-              bit_cnt <= bit_cnt - 1;
+              bit_cnt <= bit_cnt - 1;        --keep track of transaction bits
               state <= rd;                   --continue reading
             END IF;
+
           WHEN slv_ack2 =>                   --slave acknowledge bit (write)
             IF(ena = '1') THEN               --continue transaction
               busy <= '0';                   --continue is accepted
               addr_rw <= addr & rw;          --collect requested slave address and command
-              data_tx <= data_wr;          --collect requested data to write
-              IF(rw='0') THEN   --continue transaction with another write addr_rw = addr & rw mudança feita
+              data_tx <= data_wr;            --collect requested data to write
+              IF(addr_rw = addr & rw) THEN   --continue transaction with another write
                 sda_int <= data_wr(bit_cnt); --write first bit of data
                 state <= wr;                 --go to write byte
-              ELSIF (rw='1')THEN
-                 sda_int<= 'Z';
-                 bit_cnt<= 7;
-                 state<=rd;
-              ELSE                         --continue transaction with a read or new slave
+              ELSE                           --continue transaction with a read or new slave
                 state <= start;              --go to repeated start
               END IF;
             ELSE                             --complete transaction
               state <= stop;                 --go to stop bit
             END IF;
+
           WHEN mstr_ack =>                   --master acknowledge bit after a read
             IF(ena = '1') THEN               --continue transaction
               busy <= '0';                   --continue is accepted and data received is available on bus
@@ -209,9 +211,11 @@ BEGIN
             ELSE                             --complete transaction
               state <= stop;                 --go to stop bit
             END IF;
+
           WHEN stop =>                       --stop bit of transaction
             busy <= '0';                     --unflag busy
             state <= ready;                  --go to idle state
+            
         END CASE;    
       ELSIF(data_clk = '0' AND data_clk_prev = '1') THEN  --data clock falling edge
         CASE state IS
@@ -225,13 +229,7 @@ BEGIN
               ack_error <= '1';                     --set error output if no-acknowledge
             END IF;
           WHEN rd =>                                --receiving slave data
-         --   if (rising_edge(scl))  then                                  --keep track of transaction bits
-            if (sda ='0')then
-                data_rx(bit_cnt)<='0';
-            elsif (sda='Z')then
-                data_rx(bit_cnt)<='1';
-             end if;
-          -- end if;             --receive current slave data bit
+            data_rx(bit_cnt) <= sda;                --receive current slave data bit
           WHEN slv_ack2 =>                          --receiving slave acknowledge (write)
             IF(sda /= '0' OR ack_error = '1') THEN  --no-acknowledge or previous no-acknowledge
               ack_error <= '1';                     --set error output if no-acknowledge

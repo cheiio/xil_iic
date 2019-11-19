@@ -4,51 +4,95 @@ use ieee.numeric_std.all;
 
 entity axi_iic_wrapper is
 	generic (
-		-- Users to add parameters here
+        -- Users to add parameters here
+        fifo_size : INTEGER := 16; -- maximum package burst in bytes
         input_clk : INTEGER := 50_000_000; --input clock speed from user logic in Hz
-        bus_clk   : INTEGER := 400_000);   --speed the i2c bus (scl) will run at in Hz
+        bus_clk   : INTEGER := 400_000;   --speed the i2c bus (scl) will run at in Hz
 		-- User parameters ends
 		-- Do not modify the parameters beyond this line
 
-		-- Parameters of Axi Slave Bus Interface S00_AXI
-		C_S_AXI_DATA_WIDTH	: integer	:= 32;
-		C_S_AXI_ADDR_WIDTH	: integer	:= 7 -- iic 7 bit address
+        -- Parameters of Axi Slave Bus Interface S_AXI
+        -- Width of S_AXI data bus
+        C_S_AXI_DATA_WIDTH	: integer	:= 32;
+        -- Width of S_AXI address bus
+		C_S_AXI_ADDR_WIDTH	: integer	:= 4
 	);
 	port (
 		-- Users to add ports here
         sda       : INOUT  STD_LOGIC;
-        scl       : INOUT  STD_LOGIC
+        scl       : INOUT  STD_LOGIC;
 		-- User ports ends
 		-- Do not modify the ports beyond this line
 
-
-        -- Ports of Axi Slave Bus Interface S00_AXI
+        -- Ports of Axi Slave Bus Interface S_AXI
         -- Clock and Reset
 		s_axi_aclk	: in std_logic;
 		s_axi_aresetn	: in std_logic;
+        
         -- Write Address Channel
+            -- Write address (issued by master, acceped by Slave)
         s_axi_awaddr	: in std_logic_vector(C_S_AXI_ADDR_WIDTH-1 downto 0);
-		s_axi_awprot	: in std_logic_vector(2 downto 0);
-		s_axi_awvalid	: in std_logic;
+            -- Write channel Protection type. This signal indicates the
+                -- privilege and security level of the transaction, and whether
+                -- the transaction is a data access or an instruction access.
+        s_axi_awprot	: in std_logic_vector(2 downto 0);
+            -- Write address valid. This signal indicates that the master signaling
+    		    -- valid write address and control information.
+        s_axi_awvalid	: in std_logic;
+            -- Write address ready. This signal indicates that the slave is ready
+                -- to accept an address and associated control signals.
 		s_axi_awready	: out std_logic;
+        
         -- Write Data Channel
+            -- Write data (issued by master, acceped by Slave) 
         s_axi_wdata	: in std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
-		s_axi_wstrb	: in std_logic_vector((C_S_AXI_DATA_WIDTH/8)-1 downto 0);
-		s_axi_wvalid	: in std_logic;
+            -- Write strobes. This signal indicates which byte lanes hold
+                -- valid data. There is one write strobe bit for each eight
+                -- bits of the write data bus.    
+        s_axi_wstrb	: in std_logic_vector((C_S_AXI_DATA_WIDTH/8)-1 downto 0);
+            -- Write valid. This signal indicates that valid write
+                -- data and strobes are available.
+        s_axi_wvalid	: in std_logic;
+            -- Write ready. This signal indicates that the slave
+                -- can accept the write data.       
 		s_axi_wready	: out std_logic;
+        
         -- Write Response Channel
+        	-- Write response. This signal indicates the status
+    	    	-- of the write transaction.
         s_axi_bresp	: out std_logic_vector(1 downto 0);
-		s_axi_bvalid	: out std_logic;
-		s_axi_bready	: in std_logic;
+       		-- Write response valid. This signal indicates that the channel
+        		-- is signaling a valid write response.
+    	s_axi_bvalid	: out std_logic;
+            -- Response ready. This signal indicates that the master
+                -- can accept a write response.
+        s_axi_bready	: in std_logic;
+
         -- Read Address Channel
+ 		    -- Read address (issued by master, acceped by Slave)
         s_axi_araddr	: in std_logic_vector(C_S_AXI_ADDR_WIDTH-1 downto 0);
-		s_axi_arprot	: in std_logic_vector(2 downto 0);
-		s_axi_arvalid	: in std_logic;
-		s_axi_arready	: out std_logic;
+            -- Protection type. This signal indicates the privilege
+                -- and security level of the transaction, and whether the
+                -- transaction is a data access or an instruction access.
+        s_axi_arprot	: in std_logic_vector(2 downto 0);
+            -- Read address valid. This signal indicates that the channel
+                -- is signaling valid read address and control information.
+        s_axi_arvalid	: in std_logic;
+            -- Read address ready. This signal indicates that the slave is
+                -- ready to accept an address and associated control signals.
+        s_axi_arready	: out std_logic;
+
         -- Read Data Channel
-        s_axi_rdata	: out std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
+		    -- Read data (issued by slave)
+		s_axi_rdata	: out std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
+            -- Read response. This signal indicates the status of the
+                -- read transfer.
 		s_axi_rresp	: out std_logic_vector(1 downto 0);
+            -- Read valid. This signal indicates that the channel is
+                -- signaling the required read data.
 		s_axi_rvalid	: out std_logic;
+            -- Read ready. This signal indicates that the master can
+                -- accept the read data and response information.
 		s_axi_rready	: in std_logic
 	);
 end axi_iic_wrapper;
@@ -74,6 +118,15 @@ component i2c_master IS
     scl       : INOUT  STD_LOGIC);
 END component;
 
+component fifo_mod is
+    generic(    data_width: integer := 8);
+    port (      clk, resetn: in std_logic;
+                push, pull : in std_logic;
+                data_in: in std_logic_vector(data_width-1 downto 0);
+                data_out: out std_logic_vector(data_width-1 downto 0);
+                empty, full : out std_logic);
+end component;
+
 -- AXI4LITE signals
 signal axi_awaddr	: std_logic_vector(C_S_AXI_ADDR_WIDTH-1 downto 0);
 signal axi_awready	: std_logic;
@@ -97,9 +150,16 @@ constant OPT_MEM_ADDR_BITS : integer := 1;
 --------------------------------------------------
 ---- Signals for user logic register space example
 --------------------------------------------------
--- slv_reg |  | data_wr | addr | r/w |
---     bit |  |  24-8   |  7-1 |  0  |
-signal slv_reg :std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
+---- Number of Slave Registers 4
+-- slv_reg0 | busy_rw | n_transactions | addr | r/w | -- Address Registers
+--      bit |  31-30  |       10-8     |  7-1 |  0  |
+signal slv_reg0	:std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
+-- slv_reg* | data 3 | data 2 | data 1 | data 0 |
+--      bit |  32-24 |  23-16 |  15-8  |   7-0  |
+signal slv_reg1	:std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
+signal slv_reg2	:std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
+signal slv_reg3	:std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
+signal new_reg0,new_reg1,new_reg2,new_reg3 : std_logic;
 signal slv_reg_rden	: std_logic;
 signal slv_reg_wren	: std_logic;
 -- reg_out |  | data_rd |
@@ -107,6 +167,7 @@ signal slv_reg_wren	: std_logic;
 signal reg_data_out	:std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
 signal byte_index	: integer;
 signal aw_en	: std_logic;
+
 
 -- Signals for Modules
 signal ena       : STD_LOGIC;
@@ -116,8 +177,20 @@ signal data_wr   : STD_LOGIC_VECTOR(7 DOWNTO 0);
 signal busy      : STD_LOGIC;
 signal data_rd   : STD_LOGIC_VECTOR(7 DOWNTO 0);
 signal ack_error : STD_LOGIC;
-signal ready_in  : STD_LOGIC;
-signal reg_data_rd : STD_LOGIC_VECTOR(15 DOWNTO 0);
+
+signal fifo_push    : STD_LOGIC;
+signal fifo_pull    : STD_LOGIC;
+signal fifo_data_qtd : std_logic_vector(1 downto 0);
+signal fifo_data_in : std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
+signal fifo_data_out : std_logic_vector(7 downto 0);
+signal fifo_empty   : STD_LOGIC;
+signal fifo_full    : STD_LOGIC;
+
+-- Data FSM signals
+TYPE state_type IS (idle, wr_job, rd_job, wr_ready, rd_ready); -- Define the states
+SIGNAL state : state_Type;  -- Create a signal that uses 
+signal i2c_addr : std_logic_vector(6 downto 0);
+signal i2c_busy : STD_LOGIC;
 
 begin
 
@@ -133,9 +206,9 @@ begin
     S_AXI_RVALID	<= axi_rvalid;
     
     -- Implement axi_awready generation
-    -- axi_awready is asserted for one S_AXI_ACLK clock cycle when both
-    -- S_AXI_AWVALID and S_AXI_WVALID are asserted. axi_awready is
-    -- de-asserted when reset is low.
+    -- axi_awready is asserted for one S_AXI_ACLK clock cycle when
+    -- S_AXI_AWVALID and S_AXI_WVALID and i2c_wr_ready are asserted. 
+    -- axi_awready is de-asserted when reset is low.
 
     process (S_AXI_ACLK)
     begin
@@ -146,11 +219,10 @@ begin
         else
         if (axi_awready = '0' and S_AXI_AWVALID = '1' and S_AXI_WVALID = '1' and aw_en = '1') then
             -- slave is ready to accept write address when
-            -- there is a valid write address and write data
-            -- on the write address and data bus. This design 
-            -- expects no outstanding transactions. 
+            -- there is a valid write address, write data
+            -- on the write address and i2c_wrready is asserted.
             axi_awready <= '1';
-        elsif (S_AXI_BREADY = '1' and axi_bvalid = '1' and busy = '0') then
+        elsif (S_AXI_BREADY = '1' and axi_bvalid = '1' and i2c_busy = '0') then
             aw_en <= '1';
             axi_awready <= '0';
         else
@@ -216,22 +288,30 @@ begin
     begin
     if rising_edge(S_AXI_ACLK) then 
         if S_AXI_ARESETN = '0' then
-        slv_reg <= (others => '0');
-        ready_in <= '0';
+            slv_reg0 <= (others => '0');
+            slv_reg1 <= (others => '0');
+            slv_reg2 <= (others => '0');
+            slv_reg3 <= (others => '0');
+            new_reg0 <= '0';
+            new_reg1 <= '0';
+            new_reg2 <= '0';
+            new_reg3 <= '0';
         else
-        loc_addr := axi_awaddr(ADDR_LSB + OPT_MEM_ADDR_BITS downto ADDR_LSB);
-        if (slv_reg_wren = '1') then
-            case loc_addr is
-            when b"00" =>
-                -- slave registor
-                slv_reg <= S_AXI_WDATA;
-                -- data ready in
-                ready_in <= '1';
-            when others =>
-                slv_reg <= slv_reg;
-                ready_in <= '0';
-            end case;
-        end if;
+            loc_addr := axi_awaddr(ADDR_LSB + OPT_MEM_ADDR_BITS downto ADDR_LSB);
+            if (slv_reg_wren = '1') then
+              case loc_addr is
+                when b"00" =>
+                    slv_reg0 <= S_AXI_WDATA; new_reg0 <= '1';
+                when b"01" =>
+                    slv_reg1 <= S_AXI_WDATA; new_reg1 <= '1';
+                when others =>
+                    slv_reg0 <= slv_reg0;
+                    slv_reg1 <= slv_reg1;
+              end case;
+            else
+              new_reg0 <= '0';
+              new_reg1 <= '0';
+            end if;
         end if;
     end if;                   
     end process; 
@@ -324,7 +404,15 @@ begin
         loc_addr := axi_araddr(ADDR_LSB + OPT_MEM_ADDR_BITS downto ADDR_LSB);
         case loc_addr is
         when b"00" =>
-            reg_data_out <= reg_data_rd;
+            reg_data_out(31) <= i2c_busy_write;
+            reg_data_out(30) <= i2c_busy_read;
+            reg_data_out(29 downto 0) <= slv_reg0(30 downto 0);
+        when b"01" =>
+            reg_data_out <= slv_reg1;
+        when b"10" =>
+            reg_data_out <= slv_reg2;
+        when b"11" =>
+            reg_data_out <= slv_reg3;
         when others =>
             reg_data_out <= (others => '0');
         end case;
@@ -350,7 +438,7 @@ begin
 
     -- IIC module logic
     --
-    -- Instantiation of module
+    -- Instantiation of module i2c master
     my_iic: i2c_master 
     Generic Map(
         input_clk => input_clk,
@@ -369,28 +457,87 @@ begin
         sda       => sda,
         scl       => scl       
     );
+    -- Instantiation of module fifo
+    my_fifo: FIFO_MOD
+    Generic Map(
+        data_width => 8
+    )
+    Port Map(
+        clk => s_axi_aclk,
+        resetn => s_axi_aresetn,
+        push     => fifo_push,
+        pull     => fifo_pull,
+        data_qtd => fifo_data_qtd,
+        data_in  => fifo_data_in,
+        data_out => fifo_data_out,
+        empty    => fifo_empty,
+        full     => fifo_full
+    )
 
-    -- IIC logic process
-    iic_logic: process(s_axi_aclk)
+    -- Latching address
+    process(slv_reg0)
+    begin
+        addr <= slv_reg0(7 downto 1);
+        rw <= slv_reg0(0);
+        fifo_data_qtd <= slv_reg0(10 downto 8);
+    end process;
+    -- Latching data
+    process(slv_reg1)
+    begin
+        fifo_data_in <= slv_reg1;
+    end process;
+    
+    -- IIC FSM state process
+    process(s_axi_aclk)
     variable slv_reg_local : std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
+    variable busy_prev : std_logic ;
     begin
         if rising_edge(s_axi_aclk) then
             if s_axi_aresetn = '0' then
-                reg_data_rd <= (others => '0');
-                ena <= '0';
-                slv_reg_local := (others => '0');
+                state <= idle;
+                busy_prev := '0';
+                i2c_busy_write <= '0';
+                i2c_busy_write <= '0';
+                fifo_push <= '0';
             else
-                if ready_in = '1' then
-
-                    slv_reg_local := slv_reg;
-                    ena  <= '1';
-                    rw <= slv_reg_local(0);
+                case state is
+                    when idle =>
+                    if new_reg0 = '1' then
+                      if rw='1' then
+                        state <= start_read;
+                      else
+                        state <= wait_data_axi;
+                      end if;
+                    else
+                      state <= idle;
+                    end if;                       
                     
-                    addr <= slv_reg_local(7 downto 1);
-                    data_wr <= slv_reg_local(16 downto 8);
-                end if;
+                    when wait_data_axi =>
+                    if new_reg1 = '1' then
+                      state <= push;
+                    else
+                      state <= wait_data_axi;
+                    end if;
+
+                    when push =>
+                    state <= start_write;
+
+                    when proc_write =>
+                    if fifo_empty = '0' then
+                      state <= proc_write;
+                    else
+                      state <= proc_stop;
+                    end if;
+                      
+                    end if;
+                        
+
+                    when others =>
+                        
+                
+                end case;
             end if;
         end if;
-    end process iic_logic;
+    end process;
 
 end arch_imp;
