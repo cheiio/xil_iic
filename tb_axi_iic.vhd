@@ -151,6 +151,7 @@ BEGIN
     S_AXI_ARESETN<='0';
     sendIt<='0';
     
+    -------------------------------------------------------- Start Write
     wait for 3 us;
        S_AXI_ARESETN<='1';
        
@@ -176,8 +177,7 @@ BEGIN
     wait until S_AXI_BVALID = '0';  --AXI Write finished
         S_AXI_WSTRB<=b"0000";
     
-    wait for 100 ns;
-    
+    wait for 100 ns;    
     -------------------------------------------------------- Wait Write
     write_ready := '0';
     while write_ready='0' loop
@@ -193,8 +193,7 @@ BEGIN
         end if;
 
     end loop;
-    --------------------------------------------------------- Config Read mode
-          
+    --------------------------------------------------------- Config Read mode          
     S_AXI_AWADDR<=b"0000";     -- reg0
        S_AXI_WDATA<=b"000000000000000000000" & "001" & addr_i2c & "0"; -- send 1 bytes | addr | rd  
        S_AXI_WSTRB<=b"1111";
@@ -218,7 +217,7 @@ BEGIN
     wait for 100 ns;
     
     -------------------------------------------------------- Wait Write
-        write_ready := '0';
+    write_ready := '0';
         while write_ready='0' loop
                 S_AXI_ARADDR<=b"0000";
                 readIt<='1';                --Start AXI Read from Slave
@@ -230,12 +229,12 @@ BEGIN
             if S_AXI_RDATA(C_S_AXI_DATA_WIDTH-1)='0' then
                 write_ready := '1';
             end if;
-    
         end loop;
     --------------------------------------------------------- Start Read
+    wait for 10 us;
     
        S_AXI_AWADDR<=b"0000";     -- reg0
-       S_AXI_WDATA<=b"000000000000000000000" & "010" & addr_i2c & "0"; -- reveive 2 bytes | addr | rd  
+       S_AXI_WDATA<=b"000000000000000000000" & "010" & addr_i2c & "1"; -- reveive 2 bytes | addr | rd  
        S_AXI_WSTRB<=b"1111";
        sendIt<='1';                --Start AXI Write to Slave
        wait for 1 ns; sendIt<='0'; --Clear Start Send Flag
@@ -244,8 +243,31 @@ BEGIN
        S_AXI_WSTRB<=b"0000";
 
     wait for 100 ns;
-       
-    
+    --------------------------------------------------------- Wait End Read
+    write_ready := '0';
+        while write_ready='0' loop
+                S_AXI_ARADDR<=b"0000";
+                readIt<='1';                --Start AXI Read from Slave
+                wait for 1 ns; readIt<='0'; --Clear "Start Read" STATUS
+            wait until S_AXI_RVALID = '1';
+            wait until S_AXI_RVALID = '0';
+            
+            wait for 100 ns;
+            if S_AXI_RDATA(C_S_AXI_DATA_WIDTH-1)='0' then
+                write_ready := '1';
+            end if;
+        end loop;
+    --------------------------------------------------------- Read Incoming Data
+    wait for 1 us;
+           
+           S_AXI_ARADDR<=b"1000"; --------------------------- Reg2 has read buffer
+                readIt<='1';                --Start AXI Read from Slave
+                wait for 1 ns; readIt<='0'; --Clear "Start Read" STATUS
+            wait until S_AXI_RVALID = '1';
+            wait until S_AXI_RVALID = '0';
+            
+            wait for 100 ns;
+        
     wait; -- will wait forever
 END PROCESS tb;
 

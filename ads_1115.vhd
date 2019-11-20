@@ -58,7 +58,7 @@ constant P0:STD_LOGIC_VECTOR(7 DOWNTO 0):="00000000";
 
 signal cont_tmp : integer range 0 to 7;
 
-type t_state is (verif_addr, ack, wr_mode,wr_mode_ack,wr_config_reg_1,wr_config_reg_ack_1,wr_config_reg_2,wr_config_reg_ack_2, rd_mode_1,rd_mode_ack_1,rd_mode_2);
+type t_state is (verif_addr, return_verif, ack, wr_mode,wr_mode_ack,wr_config_reg_1,wr_config_reg_ack_1,wr_config_reg_2,wr_config_reg_ack_2, rd_mode_1,rd_mode_ack_1,rd_mode_2);
 signal state, next_state : t_state := verif_addr;
 
 TYPE T_STATE_REG IS (IDLE,update_conv_reg, REG_CONV, REG_CONF);
@@ -100,7 +100,6 @@ begin
 			end case;
 end process;
 
-
 process(scl)
 begin
     if (scl'event and scl='0') then
@@ -124,7 +123,7 @@ PROCESS(scl)
 		    sda_out <= '1';
 		elsif(scl'event and scl='Z')then
 			case state is
-                when verif_addr => 
+			    when verif_addr => 
                     sda_in_vector(cont) <= sda_in;
                     if (cont = 0) then
                         sda_out <= '0';
@@ -169,13 +168,13 @@ PROCESS(scl)
                         next_state <= wr_config_reg_1;
                     elsif sda_in_vector = P0 THEN
                         sda_out<='1';
-                        next_state <= verif_addr;
+                        next_state <= return_verif;
                         state_reg <= reg_CONV;
                     else
-                       next_state<=verif_addr;
+                       next_state <= return_verif;
                        sda_out <= '1';
                     end if;
-                
+                    
     ----------------------------------- Estado wr_config_reg_1
                 when wr_config_reg_1 =>
                     sda_in_vector(cont) <= sda_in;
@@ -195,6 +194,9 @@ PROCESS(scl)
                     config_reg(15 downto 8) <= sda_in_vector;
                     sda_out <= '1';
                     next_state <= wr_config_reg_2;
+                    
+--                    sda_in_vector(cont) <= sda_in;
+--                    cont := cont-1;
     
     ----------------------------------- Estado wr_config_reg_2            
                     
@@ -214,8 +216,11 @@ PROCESS(scl)
                 when wr_config_reg_ack_2 =>
                     config_reg(7 downto 0) <= sda_in_vector;
                     sda_out <= '1';
-                    next_state <= verif_addr;
+                    next_state <= return_verif;
                     state_reg <= update_conv_reg;
+                                
+                when return_verif =>
+                    next_state <= verif_addr;
                     
     ----------------------------------------estado rd_mode_1
                 when rd_mode_1=>

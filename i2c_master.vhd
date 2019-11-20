@@ -227,7 +227,11 @@ BEGIN
               ack_error <= '1';                     --set error output if no-acknowledge
             END IF;
           WHEN rd =>                                --receiving slave data
-            data_rx(bit_cnt) <= sda;                --receive current slave data bit
+            if sda = '0' then                       -- fix Sergio
+            data_rx(bit_cnt) <= '0';                --receive current slave data bit
+            else
+            data_rx(bit_cnt) <= '1';
+            end if;
           WHEN slv_ack2 =>                          --receiving slave acknowledge (write)
             IF(sda /= '0' OR ack_error = '1') THEN  --no-acknowledge or previous no-acknowledge
               ack_error <= '1';                     --set error output if no-acknowledge

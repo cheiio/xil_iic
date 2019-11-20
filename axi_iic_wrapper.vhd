@@ -426,6 +426,8 @@ begin
     -- IIC module logic
     
     i2c_busy <= i2c_busy_read or i2c_busy_write or busy;
+    addr <= slv_reg0(7 downto 1);
+    rw <= slv_reg0(0);
     --
     -- Instantiation of module i2c master
     my_iic: i2c_master 
@@ -461,9 +463,9 @@ begin
           i2c_busy_write <= '0';
 
           ena <= '0';
-          addr <= (others=>'0');
+--          addr <= (others=>'0');
           data_wr <= (others=>'0');
-          rw <= '0';
+--          rw <= '0';
 
           return_read <= '0';
           return_push <= '0';
@@ -476,8 +478,8 @@ begin
                 busy_prev := '0';
                 rdy_prev := '0';
                 
-                addr <= slv_reg0(7 downto 1);
-                rw <= slv_reg0(0);
+--                addr <= slv_reg0(7 downto 1);
+--                rw <= slv_reg0(0);
                 fifo_cnt := to_integer(unsigned(slv_reg0(10 downto 8)));
       
             when wait_data_axi =>
@@ -517,7 +519,7 @@ begin
                   end if;
                   data_rd_reg((fifo_cnt+1)*8 - 1 downto fifo_cnt*8) <= data_rd;
                 end if;
-                rdy_prev := busy;
+                rdy_prev := rdy;
 
             when proc_stop => 
               ena <= '0';
@@ -544,7 +546,7 @@ begin
                 when idle =>
                     scl_prev := '0';
                     if new_reg0 = '1' then
-                      if rw='1' then
+                      if rw ='1' then
                         state <= start_read;
                       else
                         state <= wait_data_axi;
