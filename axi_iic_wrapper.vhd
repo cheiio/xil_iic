@@ -549,7 +549,6 @@ begin
                       else
                         state <= wait_data_axi;
                       end if;
-                      busy_prev := '0'';
                     else
                       state <= idle;
                     end if;                       

@@ -44,6 +44,7 @@ ENTITY i2c_master IS
     addr      : IN     STD_LOGIC_VECTOR(6 DOWNTO 0); --address of target slave
     rw        : IN     STD_LOGIC;                    --'0' is write, '1' is read
     data_wr   : IN     STD_LOGIC_VECTOR(7 DOWNTO 0); --data to write to slave
+    rdy       : OUT    STD_LOGIC;                    --indicates transaction is done -- fix sergio
     busy      : OUT    STD_LOGIC;                    --indicates transaction in progress
     data_rd   : OUT    STD_LOGIC_VECTOR(7 DOWNTO 0); --data read from slave
     ack_error : BUFFER STD_LOGIC;                    --flag if improper acknowledge from slave
@@ -110,6 +111,7 @@ BEGIN
     IF(reset_n = '0') THEN                 --reset asserted
       state <= ready;                      --return to initial state
       busy <= '1';                         --indicate not available
+      rdy <= '0';                           -- fix sergio
       scl_ena <= '0';                      --sets scl high impedance
       sda_int <= '1';                      --sets sda high impedance
       ack_error <= '0';                    --clear acknowledge error flag
@@ -128,12 +130,11 @@ BEGIN
               busy <= '0';                   --unflag busy
               state <= ready;                --remain idle
             END IF;
-
+            rdy <= '0';                      -- fix sergio
           WHEN start =>                      --start bit of transaction
             busy <= '1';                     --resume busy if continuous mode
             sda_int <= addr_rw(bit_cnt);     --set first address bit to bus
             state <= command;                --go to command
-
           WHEN command =>                    --address and command byte of transaction
             IF(bit_cnt = 0) THEN             --command transmit finished
               sda_int <= '1';                --release sda for slave acknowledge
@@ -144,7 +145,6 @@ BEGIN
               sda_int <= addr_rw(bit_cnt-1); --write address/command bit to bus
               state <= command;              --continue with command
             END IF;
-
           WHEN slv_ack1 =>                   --slave acknowledge bit (command)
             IF(addr_rw(0) = '0') THEN        --write command
               sda_int <= data_tx(bit_cnt);   --write first bit of data
@@ -153,19 +153,18 @@ BEGIN
               sda_int <= '1';                --release sda from incoming data
               state <= rd;                   --go to read byte
             END IF;
-
           WHEN wr =>                         --write byte of transaction
             busy <= '1';                     --resume busy if continuous mode
             IF(bit_cnt = 0) THEN             --write byte transmit finished
               sda_int <= '1';                --release sda for slave acknowledge
               bit_cnt <= 7;                  --reset bit counter for "byte" states
               state <= slv_ack2;             --go to slave acknowledge (write)
+              rdy <= '1';                   -- fix sergio
             ELSE                             --next clock cycle of write state
               bit_cnt <= bit_cnt - 1;        --keep track of transaction bits
               sda_int <= data_tx(bit_cnt-1); --write next bit to bus
               state <= wr;                   --continue writing
             END IF;
-
           WHEN rd =>                         --read byte of transaction
             busy <= '1';                     --resume busy if continuous mode
             IF(bit_cnt = 0) THEN             --read byte receive finished
@@ -177,12 +176,13 @@ BEGIN
               bit_cnt <= 7;                  --reset bit counter for "byte" states
               data_rd <= data_rx;            --output received data
               state <= mstr_ack;             --go to master acknowledge
+              rdy <= '1';                   -- fix sergio
             ELSE                             --next clock cycle of read state
               bit_cnt <= bit_cnt - 1;        --keep track of transaction bits
               state <= rd;                   --continue reading
             END IF;
-
           WHEN slv_ack2 =>                   --slave acknowledge bit (write)
+            rdy <= '0';                   -- fix sergio
             IF(ena = '1') THEN               --continue transaction
               busy <= '0';                   --continue is accepted
               addr_rw <= addr & rw;          --collect requested slave address and command
@@ -196,8 +196,8 @@ BEGIN
             ELSE                             --complete transaction
               state <= stop;                 --go to stop bit
             END IF;
-
           WHEN mstr_ack =>                   --master acknowledge bit after a read
+            rdy <= '0';                   -- fix sergio
             IF(ena = '1') THEN               --continue transaction
               busy <= '0';                   --continue is accepted and data received is available on bus
               addr_rw <= addr & rw;          --collect requested slave address and command
@@ -211,11 +211,9 @@ BEGIN
             ELSE                             --complete transaction
               state <= stop;                 --go to stop bit
             END IF;
-
           WHEN stop =>                       --stop bit of transaction
             busy <= '0';                     --unflag busy
             state <= ready;                  --go to idle state
-            
         END CASE;    
       ELSIF(data_clk = '0' AND data_clk_prev = '1') THEN  --data clock falling edge
         CASE state IS
