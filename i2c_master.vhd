@@ -246,13 +246,25 @@ BEGIN
   END PROCESS;  
 
   --set sda output
+  
+  --WITH state SELECT
+  --sda_ena_n <= data_clk_prev WHEN start,     --generate start condition
+  --         NOT data_clk_prev WHEN stop,  --generate stop condition
+  --         sda_int WHEN OTHERS;          --set to internal sda signal -- fix for implementation
+  --sda <= '0' WHEN sda_ena_n = '0' ELSE 'Z';
+  
   WITH state SELECT
-    sda_ena_n <= data_clk_prev WHEN start,     --generate start condition
-                 NOT data_clk_prev WHEN stop,  --generate stop condition
-                 sda_int WHEN OTHERS;          --set to internal sda signal    
-      
-  --set scl and sda outputs
-  scl <= '0' WHEN (scl_ena = '1' AND scl_clk = '0') ELSE 'Z';
-  sda <= '0' WHEN sda_ena_n = '0' ELSE 'Z';
+  sda <= data_clk_prev WHEN start, --generate start condition
+          NOT data_clk_prev WHEN stop,  --generate stop condition
+          'Z' when slv_ack1,            -- fix for implementation
+          'Z' when slv_ack2,            -- fix for implementation
+          'Z' when rd,                  -- fix for implementation
+          '0' when mstr_ack,            -- generate ack condition
+          sda_int WHEN OTHERS;          -- set to internal sda signal -- fix for implementation
+
+  --set scl
+  -- scl <= '0' WHEN (scl_ena = '1' AND scl_clk = '0') ELSE 'Z'; -- fix for implementation
+  scl <= scl_clk WHEN (scl_ena = '1') ELSE '1';
+  
   
 END logic;

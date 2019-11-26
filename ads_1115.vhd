@@ -121,7 +121,7 @@ PROCESS(scl)
 	   if (reset_n='0')then
 		    sda_in_vector<=(others=>'0');
 		    sda_out <= '1';
-		elsif(scl'event and scl='Z')then
+		elsif(scl'event and scl/='0')then
 			case state is
 			    when verif_addr => 
                     sda_in_vector(cont) <= sda_in;
