@@ -5,8 +5,8 @@ use ieee.numeric_std.all;
 entity axi_iic_wrapper is
 	generic (
         -- Users to add parameters here
-        input_clk : INTEGER := 100_000_000; --input clock speed from user logic in Hz
-        bus_clk   : INTEGER := 100_000;   --speed the i2c bus (scl) will run at in Hz
+        input_clk : INTEGER := 50_000_000; --input clock speed from user logic in Hz
+        bus_clk   : INTEGER := 400_000;   --speed the i2c bus (scl) will run at in Hz
 		-- User parameters ends
 		-- Do not modify the parameters beyond this line
 
@@ -196,70 +196,69 @@ begin
     -- S_AXI_AWVALID and S_AXI_WVALID and i2c_wr_ready are asserted. 
     -- axi_awready is de-asserted when reset is low.
 
-	process (S_AXI_ACLK)
-	begin
-	  if rising_edge(S_AXI_ACLK) then 
-	    if S_AXI_ARESETN = '0' then
-	      axi_awready <= '0';
-	      aw_en <= '1';
-	    else
-	      if (axi_awready = '0' and S_AXI_AWVALID = '1' and S_AXI_WVALID = '1' and aw_en = '1') then
-	        -- slave is ready to accept write address when
-	        -- there is a valid write address and write data
-	        -- on the write address and data bus. This design 
-	        -- expects no outstanding transactions. 
-	        axi_awready <= '1';
-	        elsif (S_AXI_BREADY = '1' and axi_bvalid = '1') then
-	            aw_en <= '1';
-	        	axi_awready <= '0';
-	      else
-	        axi_awready <= '0';
-	      end if;
-	    end if;
-	  end if;
+    process (S_AXI_ACLK)
+    begin
+    if rising_edge(S_AXI_ACLK) then 
+        if S_AXI_ARESETN = '0' then
+            axi_awready <= '0';
+            aw_en <= '1';
+        else
+        if (axi_awready = '0' and S_AXI_AWVALID = '1' and S_AXI_WVALID = '1' and aw_en = '1') then
+            -- slave is ready to accept write address when
+            -- there is a valid write address, write data
+            -- on the write address and i2c_wrready is asserted.
+            axi_awready <= '1';
+        elsif (S_AXI_BREADY = '1' and axi_bvalid = '1') then
+            aw_en <= '1';
+            axi_awready <= '0';
+        else
+            axi_awready <= '0';
+        end if;
+        end if;
+    end if;
     end process;
-    
+
     -- Implement axi_awaddr latching
     -- This process is used to latch the address when both 
     -- S_AXI_AWVALID and S_AXI_WVALID are valid. 
 
-	process (S_AXI_ACLK)
-	begin
-	  if rising_edge(S_AXI_ACLK) then 
-	    if S_AXI_ARESETN = '0' then
-	      axi_awaddr <= (others => '0');
-	    else
-	      if (axi_awready = '0' and S_AXI_AWVALID = '1' and S_AXI_WVALID = '1' and aw_en = '1') then
-	        -- Write Address latching
-	        axi_awaddr <= S_AXI_AWADDR;
-	      end if;
-	    end if;
-	  end if;                   
-	end process; 
+    process (S_AXI_ACLK)
+    begin
+    if rising_edge(S_AXI_ACLK) then 
+        if S_AXI_ARESETN = '0' then
+        axi_awaddr <= (others => '0');
+        else
+        if (axi_awready = '0' and S_AXI_AWVALID = '1' and S_AXI_WVALID = '1' and aw_en = '1') then
+            -- Write Address latching
+            axi_awaddr <= S_AXI_AWADDR;
+        end if;
+        end if;
+    end if;                   
+    end process; 
 
     -- Implement axi_wready generation
     -- axi_wready is asserted for one S_AXI_ACLK clock cycle when both
     -- S_AXI_AWVALID and S_AXI_WVALID are asserted. axi_wready is 
     -- de-asserted when reset is low. 
 
-	process (S_AXI_ACLK)
-	begin
-	  if rising_edge(S_AXI_ACLK) then 
-	    if S_AXI_ARESETN = '0' then
-	      axi_wready <= '0';
-	    else
-	      if (axi_wready = '0' and S_AXI_WVALID = '1' and S_AXI_AWVALID = '1' and aw_en = '1') then
-	          -- slave is ready to accept write data when 
-	          -- there is a valid write address and write data
-	          -- on the write address and data bus. This design 
-	          -- expects no outstanding transactions.           
-	          axi_wready <= '1';
-	      else
-	        axi_wready <= '0';
-	      end if;
-	    end if;
-	  end if;
-	end process; 
+    process (S_AXI_ACLK)
+    begin
+    if rising_edge(S_AXI_ACLK) then 
+        if S_AXI_ARESETN = '0' then
+        axi_wready <= '0';
+        else
+        if (axi_wready = '0' and S_AXI_WVALID = '1' and S_AXI_AWVALID = '1' and aw_en = '1') then
+            -- slave is ready to accept write data when 
+            -- there is a valid write address and write data
+            -- on the write address and data bus. This design 
+            -- expects no outstanding transactions.           
+            axi_wready <= '1';
+        else
+            axi_wready <= '0';
+        end if;
+        end if;
+    end if;
+    end process; 
 
     -- Implement memory mapped register select and write logic generation
     -- The write data is accepted and written to memory mapped registers when
@@ -309,22 +308,22 @@ begin
     -- This marks the acceptance of address and indicates the status of 
     -- write transaction.
 
-	process (S_AXI_ACLK)
-	begin
-	  if rising_edge(S_AXI_ACLK) then 
-	    if S_AXI_ARESETN = '0' then
-	      axi_bvalid  <= '0';
-	      axi_bresp   <= "00"; --need to work more on the responses
-	    else
-	      if (axi_awready = '1' and S_AXI_AWVALID = '1' and axi_wready = '1' and S_AXI_WVALID = '1' and axi_bvalid = '0'  ) then
-	        axi_bvalid <= '1';
-	        axi_bresp  <= "00"; 
-	      elsif (S_AXI_BREADY = '1' and axi_bvalid = '1') then   --check if bready is asserted while bvalid is high)
-	        axi_bvalid <= '0';                                 -- (there is a possibility that bready is always asserted high)
-	      end if;
-	    end if;
-	  end if;                   
-	end process; 
+    process (S_AXI_ACLK)
+    begin
+    if rising_edge(S_AXI_ACLK) then 
+        if S_AXI_ARESETN = '0' then
+        axi_bvalid  <= '0';
+        axi_bresp   <= "00"; --need to work more on the responses
+        else
+        if (axi_awready = '1' and S_AXI_AWVALID = '1' and axi_wready = '1' and S_AXI_WVALID = '1' and axi_bvalid = '0'  ) then
+            axi_bvalid <= '1';
+            axi_bresp  <= "00"; 
+        elsif (S_AXI_BREADY = '1' and axi_bvalid = '1') then   --check if bready is asserted while bvalid is high)
+            axi_bvalid <= '0';                                 -- (there is a possibility that bready is always asserted high)
+        end if;
+        end if;
+    end if;                   
+    end process; 
 
     -- Implement axi_arready generation
     -- axi_arready is asserted for one S_AXI_ACLK clock cycle when
@@ -333,24 +332,24 @@ begin
     -- The read address is also latched when S_AXI_ARVALID is 
     -- asserted. axi_araddr is reset to zero on reset assertion.
 
-	process (S_AXI_ACLK)
-	begin
-	  if rising_edge(S_AXI_ACLK) then 
-	    if S_AXI_ARESETN = '0' then
-	      axi_arready <= '0';
-	      axi_araddr  <= (others => '1');
-	    else
-	      if (axi_arready = '0' and S_AXI_ARVALID = '1') then
-	        -- indicates that the slave has acceped the valid read address
-	        axi_arready <= '1';
-	        -- Read Address latching 
-	        axi_araddr  <= S_AXI_ARADDR;           
-	      else
-	        axi_arready <= '0';
-	      end if;
-	    end if;
-	  end if;                   
-	end process; 
+    process (S_AXI_ACLK)
+    begin
+    if rising_edge(S_AXI_ACLK) then 
+        if S_AXI_ARESETN = '0' then
+        axi_arready <= '0';
+        axi_araddr  <= (others => '1');
+        else
+        if (axi_arready = '0' and S_AXI_ARVALID = '1') then
+            -- indicates that the slave has acceped the valid read address
+            axi_arready <= '1';
+            -- Read Address latching 
+            axi_araddr  <= S_AXI_ARADDR;           
+        else
+            axi_arready <= '0';
+        end if;
+        end if;
+    end if;                   
+    end process; 
 
     -- Implement axi_arvalid generation
     -- axi_rvalid is asserted for one S_AXI_ACLK clock cycle when both 
@@ -360,24 +359,24 @@ begin
     -- bus and axi_rresp indicates the status of read transaction.axi_rvalid 
     -- is deasserted on reset (active low). axi_rresp and axi_rdata are 
     -- cleared to zero on reset (active low).  
-	process (S_AXI_ACLK)
-	begin
-	  if rising_edge(S_AXI_ACLK) then
-	    if S_AXI_ARESETN = '0' then
-	      axi_rvalid <= '0';
-	      axi_rresp  <= "00";
-	    else
-	      if (axi_arready = '1' and S_AXI_ARVALID = '1' and axi_rvalid = '0') then
-	        -- Valid read data is available at the read data bus
-	        axi_rvalid <= '1';
-	        axi_rresp  <= "00"; -- 'OKAY' response
-	      elsif (axi_rvalid = '1' and S_AXI_RREADY = '1') then
-	        -- Read data is accepted by the master
-	        axi_rvalid <= '0';
-	      end if;            
-	    end if;
-	  end if;
-	end process;
+    process (S_AXI_ACLK)
+    begin
+    if rising_edge(S_AXI_ACLK) then
+        if S_AXI_ARESETN = '0' then
+        axi_rvalid <= '0';
+        axi_rresp  <= "00";
+        else
+        if (axi_arready = '1' and S_AXI_ARVALID = '1' and axi_rvalid = '0') then
+            -- Valid read data is available at the read data bus
+            axi_rvalid <= '1';
+            axi_rresp  <= "00"; -- 'OKAY' response
+        elsif (axi_rvalid = '1' and S_AXI_RREADY = '1') then
+            -- Read data is accepted by the master
+            axi_rvalid <= '0';
+        end if;            
+        end if;
+    end if;
+    end process;
 
     -- Implement memory mapped register select and read logic generation
     -- Slave register read enable is asserted when valid address is available
@@ -531,7 +530,7 @@ begin
             
             end case;
         end if;
-    end process;
+    end process proc_name;
 
     -- IIC FSM state process
     process(s_axi_aclk)

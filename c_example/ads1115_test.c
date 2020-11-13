@@ -50,13 +50,10 @@
 #include "xil_printf.h"
 #include "xparameters.h"
 #include "xil_io.h"
+#include "axi_iic-master.h"
 
 // AXI IIC Master Reg
 #define ADS_AXI_ADDR	XPAR_AXI_IIC_MASTER_0_S00_AXI_BASEADDR
-#define R0_Offset		0x0
-#define R1_Offset		0x4
-#define R2_Offset		0x8
-#define R3_Offset		0xC
 
 // ADS1115 Reg
 #define ADS_ADDR 		0x90 // IIC ADDRESS of ADS1115
@@ -80,13 +77,6 @@ uint8_t COMP_POL = 0x0;		// bit 3
 uint8_t COMP_LAT = 0x0;		// bit 2
 uint8_t COMP_QUE = 0x3;		// bit 1-0
 //}
-
-// Function Prototypes
-void xil_iic_write(uint32_t, uint8_t, uint8_t, uint8_t*);
-void xil_iic_read(uint32_t, uint8_t, uint8_t, uint8_t*);
-void xil_iic_wait(uint32_t);
-
-void clear_buffer(uint8_t*, uint8_t);
 
 int main()
 {
@@ -135,61 +125,4 @@ int main()
 
 	cleanup_platform();
     return 0;
-}
-
-
-void xil_iic_write(uint32_t axi_addr, uint8_t iic_addr, uint8_t buff_size, uint8_t* buffer){
-	// Build Axi_data with addres and buff_size and send xil_io
-	uint32_t axi_data = 0;
-	uint8_t rw = 0;
-	axi_data = buff_size << 8 | iic_addr | rw;
-	Xil_Out32(axi_addr + R0_Offset, axi_data);
-
-	// Build axi_data with buffer and send xil_io
-	axi_data = 0;
-	for (uint8_t i=0; i<buff_size; i++){
-		axi_data = axi_data << 8;
-		axi_data = axi_data | buffer[i];
-	}
-	
-	Xil_Out32(ADS_AXI_ADDR + R1_Offset, axi_data);
-
-	// Wait Axi iic module
-	xil_iic_wait(axi_addr);
-}
-
-void xil_iic_read(uint32_t axi_addr, uint8_t iic_addr, uint8_t buff_size, uint8_t* buffer){
-	// Build Axi_data with addres and buff_size and send xil_io
-	uint8_t i;
-	uint32_t axi_data = 0;
-	uint8_t rw = 1;
-	axi_data = buff_size << 8 | iic_addr | rw;
-	Xil_Out32(axi_addr | R0_Offset, axi_data);
-	usleep(1);
-
-	// Wait Axi iic module
-	xil_iic_wait(axi_addr);
-
-	// Read Axi Register with sed data
-	axi_data = Xil_In32(axi_addr | R2_Offset);
-	for (i=buff_size; i--; i>0){
-		buffer[i-1] = axi_data >> (i-1)*8-1;
-	}
-}
-
-void xil_iic_wait(uint32_t axi_addr){
-	uint8_t flag = 1;
-	while (flag == 1){
-		uint32_t axi_data_in = Xil_In32(axi_addr | R0_Offset);
-		usleep(1);
-		if (axi_data_in >> 31 == 0){
-			flag = 0;
-		}
-	}
-}
-
-void clear_buffer(uint8_t* buffer, uint8_t buff_size){
-	for(uint8_t i=0; i++; i<buff_size-1){
-		buffer[i] = 0;
-	}
 }
